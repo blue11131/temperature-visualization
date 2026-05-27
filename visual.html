@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Annual temperature anomalies - 复刻版</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/echarts/map/js/world.js"></script>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif}
+    body{padding:20px;background:#f6f7f9}
+    .title{font-size:22px;margin-bottom:6px;color:#222}
+    .sub-title{color:#666;margin-bottom:20px;font-size:14px}
+    .control{margin-bottom:16px;display:flex;align-items:center;gap:12px}
+    label{font-weight:500}
+    select{padding:6px 10px;border-radius:6px;border:1px solid #ddd}
+    .main{display:flex;gap:20px;height:700px}
+    .map-box{flex:2;background:#fff;border-radius:10px;box-shadow:0 2px 10px #0000000a;padding:10px}
+    .chart-box{flex:1;background:#fff;border-radius:10px;box-shadow:0 2px 10px #0000000a;padding:10px}
+    #map{width:100%;height:100%}
+    #line{width:100%;height:100%}
+  </style>
+</head>
+<body>
+  <div class="title">Annual temperature anomalies</div>
+  <div class="sub-title">The difference between a year's average surface temperature from the 1991-2025 mean, in °C</div>
+  <div class="control">
+    <label>选择年份：</label>
+    <select id="year"></select>
+  </div>
+  <div class="main">
+    <div class="map-box"><div id="map"></div></div>
+    <div class="chart-box"><div id="line"></div></div>
+  </div>
+
+<script>
+// 加载你本地的 CSV 数据
+fetch('./annual-temperature-anomalies.csv')
+  .then(res => res.text())
+  .then(txt => {
+    const lines = txt.split('\n').map(l => l.trim()).filter(Boolean)
+    const header = lines[0].split(',')
+    const data = []
+    for (let i=1; i<lines.length; i++) {
+      const parts = lines[i].split(',')
+      const Entity = parts[0]?.replace(/"/g, '')
+      const Code = parts[1]?.replace(/"/g, '')
+      const Year = +parts[2]
+      const Anomaly = +parts[3]
+      if (!Year || isNaN(Anomaly)) continue
+      data.push({ Entity, Code, Year, Anomaly })
+    }
+
+    // 提取年份
+    const years = [...new Set(data.map(d => d.Year))].sort((a,b)=>a-b)
+    const yearSel = document.getElementById('year')
+    years.forEach(y => {
+      const opt = document.createElement('option')
+      opt.value = y
+      opt.textContent = y
+      yearSel.appendChild(opt)
+    })
+
+    // 构建国家-年份-异常值映射
+    const countryYearMap = {}
+    data.forEach(row => {
+      const { Entity, Year, Anomaly } = row
+      if (!countryYearMap[Entity]) countryYearMap[Entity] = {}
+      countryYearMap[Entity][Year] = Anomaly
+    })
+
+    // 初始化图表
+    const mapChart = echarts.init(document.getElementById('map'))
+    const lineChart = echarts.init(document.getElementById('line'))
+    let currentYear = years.at(-1)
+
+    // 渲染地图
+    function renderMap(year) {
+      const mapData = []
+      for (const country in countryYearMap) {
+        const val = countryYearMap[country][year]
+        if (val != null) mapData.push({ name: country, value: val })
+      }
+
+      const option = {
+        tooltip: { trigger: 'item', formatter: '{b}<br/>温度异常：{c} °C' },
+        visualMap: {
+          min: -3, max: 4,
+          left: 'left', bottom: '5%',
+          text: ['高温异常', '低温异常'],
+          calculable: true,
+          inRange: { color: ['#3498db', '#fcfcfc', '#e74c3c'] }
+        },
+        series: [{
+          type: 'map',
+          mapType: 'world',
+          roam: true,
+          emphasis: { label: { show: true } },
+          data: mapData
+        }]
+      }
+      mapChart.setOption(option)
+    }
+
+    // 渲染折线图
+    function renderLine(country) {
+      const xData = years
+      const yData = years.map(y => countryYearMap[country]?.[y] ?? null)
+      const option = {
+        title: { text: `${country} 温度异常趋势`, left: 'center' },
+        tooltip: { trigger: 'axis' },
+        xAxis: { data: xData },
+        yAxis: { name: '°C' },
+        series: [{
+          name: country,
+          type: 'line',
+          smooth: true,
+          data: yData,
+          lineStyle: { width: 3 },
+          itemStyle: { color: '#e74c3c' }
+        }]
+      }
+      lineChart.setOption(option)
+    }
+
+    // 初始渲染
+    renderMap(currentYear)
+    renderLine('World')
+
+    // 年份切换
+    yearSel.addEventListener('change', e => {
+      currentYear = +e.target.value
+      renderMap(currentYear)
+    })
+
+    // 点击国家切换折线
+    mapChart.on('click', params => {
+      const name = params.name
+      if (countryYearMap[name]) renderLine(name)
+    })
+
+    window.addEventListener('resize', () => {
+      mapChart.resize()
+      lineChart.resize()
+    })
+  })
+</script>
+</body>
+</html>
